@@ -15,10 +15,14 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 
 public class MainActivity extends Activity {
 
     private WebView webView;
+    private View customView;
+    private WebChromeClient.CustomViewCallback customViewCallback;
+    private FrameLayout fullscreenContainer;
     private ValueCallback<Uri[]> filePathCallback;
     private static final int FILE_CHOOSER_REQUEST_CODE = 1001;
     private static final String TARGET_URL = "https://davidggjg.github.io/zovex/";
@@ -28,28 +32,20 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Full screen - no title bar
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
         );
-
-        // Hide system UI (immersive mode)
-        getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        );
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         setContentView(R.layout.activity_main);
 
+        fullscreenContainer = findViewById(R.id.fullscreen_container);
         webView = findViewById(R.id.webview);
 
-        // WebView settings
+        hideSystemUI();
+
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -68,11 +64,9 @@ public class MainActivity extends Activity {
             "Chrome/120.0.0.0 Mobile Safari/537.36"
         );
 
-        // WebViewClient - stay inside the app
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                // Open external links in browser
                 if (!url.startsWith("https://davidggjg.github.io")) {
                     Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                     startActivity(intent);
@@ -82,8 +76,34 @@ public class MainActivity extends Activity {
             }
         });
 
-        // WebChromeClient - handle permissions and file chooser
         webView.setWebChromeClient(new WebChromeClient() {
+
+            @Override
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                // כניסה למסך מלא של וידאו
+                if (customView != null) {
+                    callback.onCustomViewHidden();
+                    return;
+                }
+                customView = view;
+                customViewCallback = callback;
+                fullscreenContainer.addView(customView);
+                fullscreenContainer.setVisibility(View.VISIBLE);
+                webView.setVisibility(View.GONE);
+                hideSystemUI();
+            }
+
+            @Override
+            public void onHideCustomView() {
+                // יציאה ממסך מלא של וידאו
+                if (customView == null) return;
+                fullscreenContainer.setVisibility(View.GONE);
+                fullscreenContainer.removeView(customView);
+                customView = null;
+                webView.setVisibility(View.VISIBLE);
+                hideSystemUI();
+            }
+
             @Override
             public void onPermissionRequest(PermissionRequest request) {
                 request.grant(request.getResources());
@@ -100,7 +120,6 @@ public class MainActivity extends Activity {
             }
         });
 
-        // Load URL only on first create (not on rotation)
         if (savedInstanceState == null) {
             webView.loadUrl(TARGET_URL);
         } else {
@@ -108,20 +127,39 @@ public class MainActivity extends Activity {
         }
     }
 
-    @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        super.onSaveInstanceState(outState);
-        // Save WebView state so rotation doesn't reload
-        webView.saveState(outState);
+    private void hideSystemUI() {
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        );
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
-            webView.goBack();
-            return true;
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (customView != null) {
+                // אם במסך מלא - צא ממסך מלא
+                if (customViewCallback != null) {
+                    customViewCallback.onCustomViewHidden();
+                }
+                return true;
+            }
+            if (webView.canGoBack()) {
+                webView.goBack();
+                return true;
+            }
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        webView.saveState(outState);
     }
 
     @Override
@@ -144,15 +182,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        // Re-apply immersive mode after returning from other apps
-        getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        );
+        hideSystemUI();
         webView.onResume();
     }
 
